@@ -1,0 +1,144 @@
+---
+title: "#Mean-Variance #Industry"
+author: "Bryan Routledge"
+date: "2024.07.16 (updated)"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# Mean Varianc Efficient Portfolios
+
+
+```{r}
+
+
+# Load Data and few libs  
+library("tidyverse")
+library("tidyquant")
+library("lubridate")
+library("zoo")
+library("gt")  # use "gt" instead of print for tables
+library("ggrepel")
+
+library("ggthemr")
+#source("themr_helper_lib.R")
+# p  + scale_colour_ggthemr_d() # For multi line plots
+ggthemr('fresh')
+
+# Bryan specific ones 
+source("./bryan_lib.R")
+source("./returns_lib.R")
+
+
+# Specific to mean variance calcs and plots
+source("meanvariance_lib.R")
+source("meanvariance_key_lib.R")
+source("meanvariance_plot_lib.R")
+#source("meanvariance_constraint_lib.R")
+
+```
+
+#### Data
+
+This is data from Ken French data page.  This is the ``Fama-French'' (FF) data.  He pulls from CRSP and has a broad set of portfolios that are the standard test-bed portfolios to use in finance (macro-finance).
+
+Note the FF data comes as ``simple'' returns.  I have converted them 
+to continuously compounded returns.
+
+
+* In the data R_n is: 
+$r_{n,t+1} = log(P_{n,t+1}+d_{t+1})-log(P_{n,t})$
+(where n is Market, I_coal, ... etc. )
+
+* Excess returns is the return above the risk free rate (one month t-bill is what is used in FF).  in the data these are denoted eR_Market and
+eR_n is: $r_{n,t+1}- r_{f,t+1}$
+
+* Usually it is better to work with eR_n.  This item tends to look a bit more stationary in the data and is connected to theroy nicely -- The average eR_n is the main object of attention.
+
+
+I have a script that pulls this from the page and dumps it in a csv file.  You should be able to get the FF data straight into R.
+See:
+
+* https://rviews.rstudio.com/2018/04/11/introduction-to-fama-french/
+* There has to be better options!
+
+
+
+
+#### Load Monthly Data
+```{r}
+Data.Location="https://gerbil.life/47721/data/FF.Data.Monthly.csv"
+
+
+Data <- read_csv(file=Data.Location)
+Meta <- Make.Meta(Data)
+Meta %>% gt
+
+```
+
+# PORTFOLIOS!! 
+
+Let's calculate optimal mean-variance portfolios using the cross-section (individual assets).  Here I will use "industry" portfolios.  These are returns of firms in specific SIC codes. ("Standard Industrial Classification System").  There are 49 of these.
+
+#### Industry 
+```{r}
+
+
+R.stats<-Calc.R.stats(what.pattern  =c("eR_I"), what=c("eR_Market"),
+                      start="19520101",
+                      X=Data) %>% arrange(mean.er.annual)
+# Other is a goofy category; drop for now
+R.stats <- R.stats %>% filter(portfolio !="eR_I_Other")
+
+# Pick some interesting ones - top and bottom
+Bot<-R.stats %>% select(portfolio) %>% head(n=5) %>% pull
+Top<-R.stats %>% select(portfolio) %>% tail(n=5) %>% pull
+
+n<-Real.cols(R.stats)
+R.stats %>% filter(portfolio %in% c(Bot,"eR_Market",Top)) %>% gt %>% fmt_number(columns = n, decimals = 4)
+
+```
+
+
+# Mean-Variance Optimization
+
+- Pick two intudstries
+- estimate  barR and V
+- Calculate w*
+- Plot frontier 
+- calculate GMV portfolio 
+
+** This is based on the math in Kerry Back's Chapter 5.   (See my notes)
+This builds on the "mutual fund theorem" that says a portfolio of efficient portfolios
+is efficient (so you can build the whole frontier from any two efficient portfolios)
+
+
+
+
+# MAIN 
+
+```{r}
+
+
+  Assets = c("eR_I_Beer","eR_I_Steel")
+  #Assets =Data %>% select(starts_with("eR_I")) %>% names() %>% sample(size = 5)
+  Estimation.Window=as_date(c("1975-01-01","2024-01-01"))
+  
+  E <- Data %>% 
+          Estimate.Mean.Variance(assets= Assets,window=Estimation.Window) %>%
+          Find.wstar() 
+  
+  E<- Find.wstar.many(E,mu=Suggest.Plot.Range(E))
+  
+ 
+E %>% Plot.Mean.Variance(
+  caption=paste0("Estimated on: ",paste(E$Window,collapse = " to ")),
+  label.base.portfolios = TRUE
+)
+
+E %>% Report.Economy.Portfolio
+
+
+```
+
